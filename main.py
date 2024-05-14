@@ -17,6 +17,7 @@ from active_learning import select_acq_function, active_learning_procedure
 def load_CNN_model(args, device):
     """Load new model each time for different acqusition function
     each experiments"""
+    
     model = ConvNN().to(device)
     cnn_classifier = NeuralNetClassifier(
         module=model,
