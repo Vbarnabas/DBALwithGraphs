@@ -7,14 +7,8 @@ from acquisition_functions import uniform, max_entropy, bald, var_ratios, mean_s
 
 def active_learning_procedure(
     query_strategy,
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    X_test: np.ndarray,
-    y_test: np.ndarray,
-    X_pool: np.ndarray,
-    y_pool: np.ndarray,
-    X_init: np.ndarray,
-    y_init: np.ndarray,
+    dataloaders,
+    X_init,
     estimator,
     T: int = 100,
     n_query: int = 10,
@@ -36,22 +30,21 @@ def active_learning_procedure(
     learner = ActiveLearner(
         estimator=estimator,
         X_training=X_init,
-        y_training=y_init,
         query_strategy=query_strategy,
     )
-    perf_hist = [learner.score(X_test, y_test)]
+    perf_hist = [learner.score(dataloaders['test_loader'])]
     for index in range(T):
         query_idx, query_instance = learner.query(
-            X_pool, n_query=n_query, T=T, training=training
+            dataloaders['pool_loader'], n_query=n_query, T=T, training=training
         )
-        learner.teach(X_pool[query_idx], y_pool[query_idx])
+        learner.teach(query_instance.x, query_instance.y)
         X_pool = np.delete(X_pool, query_idx, axis=0)
         y_pool = np.delete(y_pool, query_idx, axis=0)
-        model_accuracy_val = learner.score(X_val, y_val)
+        model_accuracy_val = learner.score(dataloaders['val_loader'])
         if (index + 1) % 5 == 0:
             print(f"Val Accuracy after query {index+1}: {model_accuracy_val:0.4f}")
         perf_hist.append(model_accuracy_val)
-    model_accuracy_test = learner.score(X_test, y_test)
+    model_accuracy_test = learner.score(dataloaders['test_loader'])
     print(f"********** Test Accuracy per experiment: {model_accuracy_test} **********")
     return perf_hist, model_accuracy_test
 

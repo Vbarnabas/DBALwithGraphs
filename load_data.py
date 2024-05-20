@@ -4,6 +4,9 @@ import torch
 import torchvision.transforms as transforms
 #from torchvision.datasets import MNIST
 #from torch.utils.data import DataLoader, random_split
+from torch_geometric.data import Batch, Dataset as PyGDataset
+from skorch.dataset import Dataset as SkorchDatasetBasic
+from skorch import NeuralNetClassifier
 from datasets import load_dataset
 from datasets import Dataset
 from torch.utils.data import random_split
@@ -25,16 +28,12 @@ class LoadData:
 
         #self.mnist_train, self.mnist_test = self.download_dataset()
         self.full=self.download_dataset()
-        (
-            self.X_train_All,
-            self.y_train_All,
-            self.X_val,
-            self.y_val,
-            self.X_pool,
-            self.y_pool,
-            self.X_test,
-            self.y_test,
-        ) = self.split_and_load_dataset()
+
+        (self.train,
+         self.val,
+         self.pool,
+         self.test) = self.split_and_load_dataset()
+
         self.X_init, self.y_init = self.preprocess_training_data()
 
     def tensor_to_np(self, tensor_data: torch.Tensor) -> np.ndarray:
@@ -60,15 +59,18 @@ class LoadData:
         # )
 
         dataset_hf = load_dataset("graphs-datasets/AIDS")
-        dataset_pg_list_full = [Data(graph) for graph in dataset_hf["full"]]
-        dataset_pg=DataLoader(dataset_pg_list_full)
-       # print(next(iter(dataset_pg)).x['num_nodes'])
+        dataset_pg_list_full = []
+        for graph in dataset_hf['full']:
 
+            node_features = torch.tensor(graph['node_feat'], dtype=torch.float)
+            edge_index = torch.tensor(graph['edge_index'], dtype=torch.long)
+            edge_attributes = torch.tensor(graph['edge_attr'], dtype=torch.float)
+            y=torch.tensor(graph['y'], dtype=torch.long)
+            num_nodes = graph['num_nodes']
+
+            data_object = Data(x=node_features, edge_index=edge_index, edge_attr=edge_attributes, y=y, num_nodes=num_nodes)
+            dataset_pg_list_full.append(data_object)
         return dataset_pg_list_full
-
-        #download = self.check_MNIST_folder()
-        #mnist_train = MNIST(".", train=True, download=download, transform=transform)
-        #mnist_test = MNIST(".", train=False, download=download, transform=transform)
 
 
 
@@ -77,72 +79,85 @@ class LoadData:
         train_set, val_set, pool_set, test_set = random_split(
             self.full, [self.train_size, self.val_size, self.pool_size, self.test_size]
         )
-        train_loader = DataLoader(
-            dataset=train_set, batch_size=self.train_size, shuffle=True
-        )
-        val_loader = DataLoader(dataset=val_set, batch_size=self.val_size, shuffle=True)
-        pool_loader = DataLoader(
-            dataset=pool_set, batch_size=self.pool_size, shuffle=True
-        )
-        test_loader = DataLoader(
-            dataset=test_set, batch_size=self.test_size, shuffle=True
-        )
-        train_batch = next(iter(train_loader))
-        X_train_All=train_batch.x
-        y_train_All=X_train_All['y']
-        del X_train_All['y']
-
-        # Validation set
-        val_batch = next(iter(val_loader))
-        X_val = val_batch.x
-        y_val = X_val['y']
-        del X_val['y']
+        # train_loader = SkorchDataLoader(dataset=train_set, batch_size=self.train_size, shuffle=True)
+        # val_loader = SkorchDataLoader(dataset=val_set, batch_size=self.val_size, shuffle=True)
+        # pool_loader = SkorchDataLoader(dataset=pool_set, batch_size=self.pool_size, shuffle=True)
+        # test_loader = SkorchDataLoader(dataset=test_set, batch_size=self.test_size, shuffle=True)
+        train_dataset=SkorchDataset(train_set, train_set)
+        val_dataset = SkorchDataset(val_set)
+        pool_dataset=SkorchDataset(pool_set)
 
 
-        # Pool set
-        pool_batch = next(iter(pool_loader))
-        X_pool = pool_batch.x
-        y_pool = X_pool['y']
-        del X_pool['y']  # Remove 'y' from x
 
-        # Test set
-        test_batch = next(iter(test_loader))
-        X_test = test_batch.x
-        y_test = X_test['y']
-        del X_test['y']  # Remove 'y' from x
-        return X_train_All, y_train_All, X_val, y_val, X_pool, y_pool, X_test, y_test
+        return train_loader, val_loader, pool_loader, test_loader
+
+    def extract_data(self, dataloader):
+        #ezt nemtom megtehetem e memoria meg torchgeometric miatt
+        #sztem megse tehetem meg mert akk elvesz edge_index, edge_attr és number_of_nodes
+        for data in dataloader:
+            X = torch.cat([d.x for d in data], dim=0)
+            y = torch.cat([d.y for d in data], dim=0)
+            return X, y
 
     def preprocess_training_data(self):
-        """Setup a random but balanced initial training set of 20 data points
+        """Setup a random but balanced initial training set of 20 data points"""
+        X_init = []
 
-        Attributes:
-            X_train_All: X input of training set,
-            y_train_All: y input of training set
-        """
-        initial_idx = np.array([], dtype=int)
-        self.y_train_All=torch.tensor([label for sublist in self.y_train_All for label in sublist])
-        for i in range(2):
-            idx = np.random.choice(
-                np.where(self.y_train_All == i)[0], size=10, replace=False
-            )
-            initial_idx = np.concatenate((initial_idx, idx))
-        print(initial_idx)
-        X_init = [{key: value[initial_idx] for key, value in self.X_train_All.items()}]
-        print(X_init)
-        y_init = self.y_train_All[initial_idx]
-        print(f"Initial training data points: {X_init.shape[0]}")
-        print(f"Data distribution for each class: {np.bincount(y_init)}")
-        return X_init, y_init
+        count_0, count_1 = 0, 0  # Adjust based on the number of classes you have
+        num_samples = 10
 
-    def load_all(self):
-        """Load all data"""
-        return (
-            self.tensor_to_np(self.X_init),
-            self.tensor_to_np(self.y_init),
-            self.tensor_to_np(self.X_val),
-            self.tensor_to_np(self.y_val),
-            self.tensor_to_np(self.X_pool),
-            self.tensor_to_np(self.y_pool),
-            self.tensor_to_np(self.X_test),
-            self.tensor_to_np(self.y_test),
-        )
+        # Iterate over the DataLoader to collect samples
+        print(next(iter(self.train)))
+        for data in self.train.dataset:
+            for graph in data:
+                label = graph.y.item()
+                if label == 0 and count_0 < num_samples:
+                    X_init.append(graph)
+                    count_0 += 1
+                elif label == 1 and count_1 < num_samples:
+                    X_init.append(graph)
+                    count_1 += 1
+                if count_0 >= num_samples and count_1 >= num_samples:
+                    break
+            if count_0 >= num_samples and count_1 >= num_samples:
+                break
+
+        return X_init
+
+def load_all(self):
+    dataloaders={
+            "train_loader": self.train_loader,
+            "val_loader": self.val_loader,
+            "pool_loader": self.pool_loader,
+            "test_loader": self.test_loader
+        }
+
+    return dataloaders, self.X_init
+
+
+class SkorchDataLoader(torch.utils.data.DataLoader):
+    def _collate_fn(self, data_list, follow_batch=[]):
+        data = Batch.from_data_list(data_list, follow_batch)
+        if data.edge_attr is None:
+            edge_attr = torch.ones_like(data.edge_index[0], dtype=torch.float)
+        else:
+            edge_attr = data.edge_attr
+        return {
+            'x': data.x,
+            'adj': torch.sparse.FloatTensor(data.edge_index, edge_attr, size=[data.num_nodes, data.num_nodes], device=data.x.device),
+            'batch': data.batch
+        }, data.y
+
+    def __init__(self, dataset, batch_size=1, shuffle=True, follow_batch=[], **kwargs):
+        super(SkorchDataLoader, self).__init__(
+            dataset, batch_size, shuffle,
+            collate_fn=lambda data_list: self._collate_fn(data_list, follow_batch),
+            **kwargs)
+
+class SkorchDataset(SkorchDatasetBasic):
+    def __init__(self, X, y):
+        super().__init__(X, y, length=len(X))
+
+    def transform(self, X, y):
+        return X
+
