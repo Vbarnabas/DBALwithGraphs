@@ -8,6 +8,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from skorch import NeuralNetClassifier
 from scipy.ndimage.filters import gaussian_filter1d
+from torch_geometric.datasets import TUDataset
 
 from load_data import LoadData, SkorchDataLoader, SkorchDataset
 from cnn_model import ConvNN
@@ -121,7 +122,38 @@ def train_active_learning(args, device, dataloaders: dict, X_init) -> dict:
     print("--------------- Done Training! ---------------")
     return results
 
+def train_and_evaluate(args, device, datasets):
+    #aktiv tanulas nelkul
 
+    model = GraphNN().to(device)
+    gnn_classifier = NeuralNetClassifier(
+        module=model,
+        lr=args.lr,
+        batch_size=args.batch_size,
+        max_epochs=args.epochs,
+        iterator_train=SkorchDataLoader,
+        iterator_valid=SkorchDataLoader,
+        criterion=nn.CrossEntropyLoss,
+        optimizer=torch.optim.Adam,
+        dataset=SkorchDataset,
+        train_split=None,
+        verbose=1,
+        device=device,
+    )
+
+    dataset = TUDataset(root='/tmp/PROTEINS', name='PROTEINS')
+
+    gnn_classifier.fit(list(dataset), dataset.data.y.numpy())
+
+
+    val_accuracy = gnn_classifier.score(dataset)
+    print(f"Validation Accuracy: {val_accuracy:.4f}")
+
+
+    test_accuracy = gnn_classifier.score(dataset)
+    print(f"Test Accuracy: {test_accuracy:.4f}")
+
+    return val_accuracy, test_accuracy
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -202,14 +234,16 @@ def main():
 
     # Initialize your data loaders
     DataLoader = LoadData(args.val_size)
-    dataloaders = {
-        'train_loader': DataLoader.train_loader,
-        'val_loader': DataLoader.val_loader,
-        'test_loader': DataLoader.test_loader
-    }
+    # dataloaders = {
+    #     'train_dataset': DataLoader.train_dataset,
+    #     'val_loader': DataLoader.val_loader,
+    #     'test_loader': DataLoader.test_loader
+    # }
+
+    datasets=DataLoader.load_all()
 
     # Run the simplified training and evaluation
-    val_accuracy, test_accuracy = train_and_evaluate(args, device, dataloaders)
+    val_accuracy, test_accuracy = train_and_evaluate(args, device, datasets)
     print(f"Finished Training! Validation Accuracy: {val_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
     #
@@ -233,34 +267,3 @@ if __name__ == "__main__":
     main()
 
 
-def train_and_evaluate(args, device, dataloaders):
-    #aktiv tanulas nelkul
-
-    model = GraphNN().to(device)
-    gnn_classifier = NeuralNetClassifier(
-        module=model,
-        lr=args.lr,
-        batch_size=args.batch_size,
-        max_epochs=args.epochs,
-        iterator_train=SkorchDataLoader,
-        iterator_valid=SkorchDataLoader,
-        criterion=nn.CrossEntropyLoss,
-        optimizer=torch.optim.Adam,
-        dataset=SkorchDataset,
-        train_split=None,
-        verbose=1,
-        device=device,
-    )
-
-
-    gnn_classifier.fit(list(dataloaders['train_loader'].dataset), dataloaders['train_loader'].dataset.data.y.numpy())
-
-
-    val_accuracy = gnn_classifier.score(dataloaders['val_loader'])
-    print(f"Validation Accuracy: {val_accuracy:.4f}")
-
-
-    test_accuracy = gnn_classifier.score(dataloaders['test_loader'])
-    print(f"Test Accuracy: {test_accuracy:.4f}")
-
-    return val_accuracy, test_accuracy
