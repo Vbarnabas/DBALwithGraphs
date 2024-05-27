@@ -34,6 +34,7 @@ class GraphNN(nn.Module):
         x = pyg_nn.global_mean_pool(x, batch=torch.zeros(x.size(0), dtype=torch.long))
         x = self.fc1(x)
         x = F.relu(x)
-        out = self.fc2(x)
-
-        return out
+        return F.softmax(x, dim=-1)
+        # out = self.fc2(x)
+        #
+        # return out

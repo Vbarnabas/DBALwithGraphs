@@ -88,12 +88,12 @@ class LoadData:
         # val_loader = SkorchDataLoader(dataset=val_set, batch_size=self.val_size, shuffle=True)
         # pool_loader = SkorchDataLoader(dataset=pool_set, batch_size=self.pool_size, shuffle=True)
         # test_loader = SkorchDataLoader(dataset=test_set, batch_size=self.test_size, shuffle=True)
-        train_dataset=SkorchDataset(train_set, train_y)
-        val_dataset = SkorchDataset(val_set, val_y)
-        pool_dataset=SkorchDataset(pool_set, pool_y)
-        test_dataset = SkorchDataset(pool_set, test_y)
+        # train_dataset=SkorchDataset(train_set, train_y)
+        # val_dataset = SkorchDataset(val_set, val_y)
+        # pool_dataset=SkorchDataset(pool_set, pool_y)
+        # test_dataset = SkorchDataset(pool_set, test_y)
 
-        return train_dataset, val_dataset, pool_dataset, test_dataset
+        return CustomGraphDataset(train_set), CustomGraphDataset(val_set), CustomGraphDataset(pool_set), CustomGraphDataset(test_set)
 
     def extract_data(self, dataloader):
         #ezt nemtom megtehetem e memoria meg torchgeometric miatt
@@ -134,36 +134,91 @@ class LoadData:
             }
 
         return datasets
+class CustomGraphDataset(Dataset):
+    def __init__(self, data_list):
+        self.data_list = data_list
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, idx):
+        graph = self.data_list[idx]
+        # Return data in a format that your model expects; potentially you need to handle batching differently
+        return graph
 
 
 class SkorchDataLoader(torch.utils.data.DataLoader):
     def _collate_fn(self, data_list, follow_batch=[]):
         data = Batch.from_data_list(data_list, follow_batch)
-        if data.edge_attr is None:
-            edge_attr = torch.ones_like(data.edge_index[0], dtype=torch.float)
-        else:
-            edge_attr = data.edge_attr
+        edge_attr = torch.ones_like(data.edge_index[0], dtype=torch.float) if data.edge_attr is None else data.edge_attr
 
-        print("data edge index: ", data.edge_index, "\n size: ", data.edge_index.size() ,"\nedge attr: ", edge_attr, "\n size: ", edge_attr.size(), "\nnum_nodes: ", data.num_nodes)
+        # Can't pass a Dataset directly, since it expects tensors.
+        # Use dict of tensors instead. Also, use torch.sparse for
+        # adjacency matrix to pass skorch's same-dimension check
         return {
             'x': data.x,
-            'adj': torch.sparse_coo_tensor(data.edge_index, edge_attr, size=[data.num_nodes, data.num_nodes], dtype=torch.float, device=data.x.device),
+            'adj': torch.sparse.FloatTensor(data.edge_index,
+                                            edge_attr,
+                                            size=[data.num_nodes, data.num_nodes],
+                                            device=data.x.device),
             'batch': data.batch
         }, data.y
 
-    def __init__(self, dataset, batch_size=1, shuffle=True, follow_batch=[], **kwargs):
+    def __iter__(self):
+        for batch in super().__iter__():
+            # Ensure the batch can be indexed like a tuple (input, target)
+            yield batch.to_data_list(), batch.y
+
+    def __init__(self,
+                 dataset,
+                 batch_size=1,
+                 shuffle=True,
+                 follow_batch=[],
+                 **kwargs):
         super(SkorchDataLoader, self).__init__(
-            dataset, batch_size, shuffle,
+            dataset,
+            batch_size,
+            shuffle,
             collate_fn=lambda data_list: self._collate_fn(data_list, follow_batch),
             **kwargs)
 
+
 class SkorchDataset(SkorchDatasetBasic):
     def __init__(self, X, y):
-        super().__init__(X, y, length=len(X))
+        # We need to specify `length` to avoid checks
+        super(SkorchDataset, self).__init__(X, y, length=len(X))
 
     def transform(self, X, y):
-        return X
+        return X  # Ignore y, since it is included in X
 
-    def __getitem__(self, idx):
-        return self.X[idx]
+#
+# class SkorchDataLoader(torch.utils.data.DataLoader):
+#     def _collate_fn(self, data_list, follow_batch=[]):
+#         data = Batch.from_data_list(data_list, follow_batch)
+#         if data.edge_attr is None:
+#             edge_attr = torch.ones_like(data.edge_index[0], dtype=torch.float)
+#         else:
+#             edge_attr = data.edge_attr
+#
+#         print("data edge index: ", data.edge_index, "\n size: ", data.edge_index.size() ,"\nedge attr: ", edge_attr, "\n size: ", edge_attr.size(), "\nnum_nodes: ", data.num_nodes)
+#         return {
+#             'x': data.x,
+#             'adj': torch.sparse_coo_tensor(data.edge_index, edge_attr, size=[data.num_nodes, data.num_nodes], dtype=torch.float, device=data.x.device),
+#             'batch': data.batch
+#         }, data.y
+#
+#     def __init__(self, dataset, batch_size=1, shuffle=True, follow_batch=[], **kwargs):
+#         super(SkorchDataLoader, self).__init__(
+#             dataset, batch_size, shuffle,
+#             collate_fn=lambda data_list: self._collate_fn(data_list, follow_batch),
+#             **kwargs)
+#
+# class SkorchDataset(SkorchDatasetBasic):
+#     def __init__(self, X, y):
+#         super().__init__(X, y, length=len(X))
+#
+#     def transform(self, X, y):
+#         return X
+#
+#
 

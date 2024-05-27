@@ -122,7 +122,7 @@ def train_active_learning(args, device, dataloaders: dict, X_init) -> dict:
     print("--------------- Done Training! ---------------")
     return results
 
-def train_and_evaluate(args, device, datasets):
+def train_and_evaluate(args, device):
     #aktiv tanulas nelkul
 
     model = GraphNN().to(device)
@@ -233,17 +233,17 @@ def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Initialize your data loaders
-    DataLoader = LoadData(args.val_size)
+    # DataLoader = LoadData(args.val_size)
     # dataloaders = {
     #     'train_dataset': DataLoader.train_dataset,
     #     'val_loader': DataLoader.val_loader,
     #     'test_loader': DataLoader.test_loader
     # }
 
-    datasets=DataLoader.load_all()
+    # datasets=DataLoader.load_all()
 
     # Run the simplified training and evaluation
-    val_accuracy, test_accuracy = train_and_evaluate(args, device, datasets)
+    val_accuracy, test_accuracy = train_and_evaluate(args, device)
     print(f"Finished Training! Validation Accuracy: {val_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
     #
